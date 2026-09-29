@@ -19,19 +19,27 @@ except ModuleNotFoundError:
 
 app = FastAPI(title="Sonar Debris Multi-Evidence Engine")
 
-# Dynamic CORS: Allows specific Vercel frontend URL in production, or all origins if not set
+# Robust CORS configuration:
+# 1. Matches ALLOWED_ORIGINS env var if provided (e.g. from Render dashboard)
+# 2. Includes allow_origin_regex matching all Vercel deployments (*.vercel.app) and localhost
+# 3. Falls back to ["*"] with allow_credentials=False for absolute open access if requested
 allowed_origins_env = os.getenv("ALLOWED_ORIGINS")
-if allowed_origins_env:
+if allowed_origins_env and allowed_origins_env.strip() != "*":
     allowed_origins = [origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()]
+    allow_creds = True
 else:
+    # If ALLOWED_ORIGINS is not set or is "*", open to all origins
     allowed_origins = ["*"]
+    allow_creds = False  # Wildcard '*' requires allow_credentials=False per CORS specification
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_origin_regex=r"https://.*\.vercel\.app|http://localhost:\d+",
+    allow_credentials=allow_creds,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 @app.get("/")

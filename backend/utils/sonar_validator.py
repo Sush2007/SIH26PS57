@@ -74,15 +74,17 @@ def validate_sonar_image(img_gray: np.ndarray) -> dict:
         )
 
     # ─── Check 5: Edge Density (Canny) ───
-    # Documents and photos of text have extremely high edge density (lots of sharp lines).
-    # Sonar images have moderate, diffuse edge patterns.
-    edges = cv2.Canny(img_gray, 50, 150)
+    # Documents and photos of text have extremely high edge density with sharp high-frequency transitions.
+    # Sonar backscatter has natural acoustic speckle noise that produces fine textures.
+    # We use a higher threshold (100, 200) to isolate true structural edges from speckle.
+    edges = cv2.Canny(img_gray, 100, 200)
     edge_density = float(np.count_nonzero(edges)) / (h * w)
     checks["edge_density"] = round(edge_density, 4)
-    if edge_density > 0.18:
+    # Reject only if edge density is abnormally high (e.g. dense printed text or diagrams)
+    if edge_density > 0.35:
         reasons.append(
-            f"Edge density is {edge_density:.1%} — too many sharp edges. "
-            "This looks like a photograph or document, not a sonar scan"
+            f"Edge density is {edge_density:.1%} — excessive sharp high-contrast edges. "
+            "This looks like a photograph of text or a document, not a sonar scan"
         )
 
     # ─── Check 6: Vertical Symmetry ───
@@ -134,10 +136,10 @@ def validate_sonar_image(img_gray: np.ndarray) -> dict:
         score -= min(bright_fraction * 1.5, 0.35)
     if mean_val > 170:
         score -= min((mean_val - 170) / 100, 0.25)
-    if edge_density > 0.12:
-        score -= min((edge_density - 0.12) * 3, 0.30)
-    if mean_local_std > 40:
-        score -= min((mean_local_std - 40) / 60, 0.25)
+    if edge_density > 0.25:
+        score -= min((edge_density - 0.25) * 2, 0.30)
+    if mean_local_std > 50:
+        score -= min((mean_local_std - 50) / 50, 0.25)
     if aspect < 0.4:
         score -= 0.15
 

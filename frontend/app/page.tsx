@@ -347,43 +347,202 @@ export default function Home() {
     if (found >= 0) setSelectedIndex(found);
   }
 
-  function exportReport() {
+  function exportReportAsImage() {
     if (!targets.length) return;
-    const reportData = {
-      mission: "AetherSound AI - Automated Sonar Sweep",
-      generated_at: new Date().toISOString(),
-      survey_parameters: {
-        altitude_m: parseFloat(altitude),
-        towfish_latitude: parseFloat(latitude),
-        towfish_longitude: parseFloat(longitude),
-        source_file: file?.name,
-      },
-      summary: {
-        total_detected: targets.length,
-        confirmed_anomalies: targets.filter((t) => t.verdict === "CONFIRMED_ANOMALY").length,
-        probable_targets: targets.filter((t) => t.verdict === "PROBABLE_TARGET").length,
-        rejected_false_alarms: targets.filter((t) => t.verdict.startsWith("REJECTED_")).length,
-      },
-      targets: targets.map((t, i) => ({
-        target_id: `T-${String(i + 1).padStart(2, "0")}`,
-        class_name: t.class_name,
-        verdict: t.verdict,
-        fused_score_percent: Math.round(t.fused_score * 100),
-        yolo_confidence_percent: Math.round(t.yolo_confidence * 100),
-        threat_level: t.tactical_telemetry?.threat_classification,
-        physical_dimensions_m: t.physical_dimensions,
-        gps_coordinates: t.coordinates,
-        evidence_breakdown: t.evidence_breakdown,
-      })),
-    };
 
-    const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `sonar_intelligence_report_${Date.now()}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const reportCanvas = document.createElement("canvas");
+    const width = 1200;
+    const padding = 40;
+    
+    // Estimate height dynamically based on target count
+    const headerHeight = 180;
+    const summaryHeight = 160;
+    const targetCardHeight = 220;
+    const totalHeight = headerHeight + summaryHeight + (targets.length * targetCardHeight) + 120;
+    
+    reportCanvas.width = width;
+    reportCanvas.height = totalHeight;
+    const ctx = reportCanvas.getContext("2d");
+    if (!ctx) return;
+
+    // Background styling
+    ctx.fillStyle = "#0a1217";
+    ctx.fillRect(0, 0, width, totalHeight);
+
+    // Subtle background tactical grid
+    ctx.strokeStyle = "rgba(8, 126, 101, 0.08)";
+    ctx.lineWidth = 1;
+    for (let x = 0; x < width; x += 40) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, totalHeight);
+      ctx.stroke();
+    }
+    for (let y = 0; y < totalHeight; y += 40) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+    }
+
+    // Header banner
+    ctx.fillStyle = "#087e65";
+    ctx.fillRect(0, 0, width, 6);
+
+    // Title & Branding
+    ctx.font = "bold 24px monospace";
+    ctx.fillStyle = "#49e6b3";
+    ctx.fillText("AETHERSOUND AI // TACTICAL MISSION REPORT", padding, 55);
+
+    ctx.font = "13px monospace";
+    ctx.fillStyle = "#8fa6a0";
+    ctx.fillText(`GENERATED: ${new Date().toUTCString()}  |  SURVEY FILE: ${file?.name ?? "UNNAMED"}`, padding, 85);
+    ctx.fillText(`TOWFISH ALTITUDE: ${altitude}m  |  LAT: ${latitude}° N  |  LON: ${longitude}° E`, padding, 105);
+
+    // Divider
+    ctx.strokeStyle = "rgba(73, 230, 179, 0.25)";
+    ctx.beginPath();
+    ctx.moveTo(padding, 130);
+    ctx.lineTo(width - padding, 130);
+    ctx.stroke();
+
+    // Summary Metrics Boxes
+    const boxY = 150;
+    const boxW = (width - padding * 2 - 45) / 4;
+    const boxH = 90;
+
+    const summaryCards = [
+      { label: "TOTAL CANDIDATES", val: `${targets.length}`, col: "#ffffff", sub: "Neural Net Output" },
+      { label: "VERIFIED HAZARDS", val: `${confirmedCount}`, col: "#49e6b3", sub: "Passed Shadow Physics" },
+      { label: "PROBABLE CONTACTS", val: `${probableCount}`, col: "#f2b65e", sub: "Borderline Evidence" },
+      { label: "FALSE ALARMS FILTERED", val: `${rejectedCount}`, col: "#dc7468", sub: "Zero Shadow / Artifacts" },
+    ];
+
+    summaryCards.forEach((c, i) => {
+      const bx = padding + i * (boxW + 15);
+      ctx.fillStyle = "#0f1c22";
+      ctx.fillRect(bx, boxY, boxW, boxH);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+      ctx.strokeRect(bx, boxY, boxW, boxH);
+
+      // Top colored bar
+      ctx.fillStyle = c.col;
+      ctx.fillRect(bx, boxY, boxW, 3);
+
+      ctx.font = "10px monospace";
+      ctx.fillStyle = "#8fa6a0";
+      ctx.fillText(c.label, bx + 15, boxY + 25);
+
+      ctx.font = "bold 26px sans-serif";
+      ctx.fillStyle = c.col;
+      ctx.fillText(c.val, bx + 15, boxY + 60);
+
+      ctx.font = "9px monospace";
+      ctx.fillStyle = "#617a72";
+      ctx.fillText(c.sub, bx + 15, boxY + 78);
+    });
+
+    // Target Dossier Section Header
+    let currentY = 275;
+    ctx.font = "bold 15px monospace";
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText("INDIVIDUAL CONTACT INTELLIGENCE DOSSIERS", padding, currentY);
+
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    ctx.beginPath();
+    ctx.moveTo(padding, currentY + 12);
+    ctx.lineTo(width - padding, currentY + 12);
+    ctx.stroke();
+
+    currentY += 30;
+
+    // Render each target card
+    targets.forEach((target, index) => {
+      const cardY = currentY;
+      const cardH = 200;
+      const cardW = width - padding * 2;
+      const isRejected = target.verdict.startsWith("REJECTED_");
+      const themeColor = target.verdict === "CONFIRMED_ANOMALY" ? "#49e6b3" : isRejected ? "#dc7468" : "#f2b65e";
+
+      // Card Background
+      ctx.fillStyle = "#0e181e";
+      ctx.fillRect(padding, cardY, cardW, cardH);
+      ctx.strokeStyle = isRejected ? "rgba(220, 116, 104, 0.3)" : "rgba(73, 230, 179, 0.25)";
+      ctx.strokeRect(padding, cardY, cardW, cardH);
+
+      // Left Accent Border
+      ctx.fillStyle = themeColor;
+      ctx.fillRect(padding, cardY, 5, cardH);
+
+      // Target ID & Name
+      ctx.font = "bold 16px monospace";
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(`T-${String(index + 1).padStart(2, "0")}: ${target.class_name.replaceAll("_", " ").toUpperCase()}`, padding + 20, cardY + 30);
+
+      // Verdict Pill
+      ctx.fillStyle = isRejected ? "rgba(220, 116, 104, 0.2)" : "rgba(73, 230, 179, 0.2)";
+      const verdictText = target.verdict.replaceAll("_", " ");
+      const verdictWidth = ctx.measureText(verdictText).width + 20;
+      ctx.fillRect(width - padding - verdictWidth - 15, cardY + 15, verdictWidth, 24);
+      ctx.strokeStyle = themeColor;
+      ctx.strokeRect(width - padding - verdictWidth - 15, cardY + 15, verdictWidth, 24);
+      ctx.font = "bold 10px monospace";
+      ctx.fillStyle = themeColor;
+      ctx.fillText(verdictText, width - padding - verdictWidth - 5, cardY + 31);
+
+      // Row 1: Tactical Classification & Telemetry
+      ctx.font = "11px monospace";
+      ctx.fillStyle = "#8fa6a0";
+      ctx.fillText(`THREAT: ${target.tactical_telemetry?.threat_classification ?? "UNKNOWN"}`, padding + 20, cardY + 60);
+      ctx.fillText(`ACOUSTIC BEAM: ${target.tactical_telemetry?.acoustic_channel ?? "STARBOARD"}`, padding + 340, cardY + 60);
+      ctx.fillText(`FUSED CONFIDENCE: ${Math.round(target.fused_score * 100)}% (RAW YOLO: ${(target.yolo_confidence * 100).toFixed(1)}%)`, padding + 620, cardY + 60);
+
+      // Row 2: Physical Dimensions & 3D Protrusion
+      ctx.fillStyle = "#d0deda";
+      ctx.fillText(`LENGTH: ${displayNumber(target.physical_dimensions?.length_meters)}m`, padding + 20, cardY + 90);
+      ctx.fillText(`WIDTH: ${displayNumber(target.physical_dimensions?.width_meters)}m`, padding + 170, cardY + 90);
+      ctx.fillText(`GROUND RANGE (Rg): ${displayNumber(target.physical_dimensions?.ground_range_meters)}m`, padding + 340, cardY + 90);
+      ctx.fillText(`PROTRUSION HEIGHT (H): ${displayNumber(target.tactical_telemetry?.estimated_3d_relief_height_m)}m`, padding + 620, cardY + 90);
+
+      // Row 3: Coordinates
+      ctx.fillStyle = "#8ce0c6";
+      ctx.fillText(`GEODETIC POSITION: LAT ${displayNumber(target.coordinates?.latitude, 6)}° N  |  LON ${displayNumber(target.coordinates?.longitude, 6)}° E`, padding + 20, cardY + 120);
+
+      // Row 4: Evidence Scores
+      ctx.font = "10px monospace";
+      ctx.fillStyle = "#718780";
+      ctx.fillText("6-PILLAR PHYSICS BREAKDOWN:", padding + 20, cardY + 155);
+
+      const ev = target.evidence_breakdown || {};
+      const evList = [
+        `AI: ${Math.round((ev.calibrated_ai_probability ?? 0) * 100)}%`,
+        `Shadow: ${Math.round((ev.acoustic_shadow_strength ?? 0) * 100)}%`,
+        `SNR: ${Math.round((ev.image_quality_index ?? 0) * 100)}%`,
+        `Non-Rock: ${Math.round((ev.natural_feature_exclusion ?? 0) * 100)}%`,
+        `Geometry: ${Math.round((ev.geometric_plausibility ?? 0) * 100)}%`,
+      ];
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(evList.join("   |   "), padding + 20, cardY + 175);
+
+      currentY += cardH + 18;
+    });
+
+    // Footer
+    ctx.font = "10px monospace";
+    ctx.fillStyle = "#4a635c";
+    ctx.fillText("AETHERSOUND AI // SIH 2026 PS 26057 // AUTONOMOUS ACOUSTIC INTELLIGENCE DOSSIER", padding, totalHeight - 35);
+    ctx.fillText("PAGE 1 OF 1 // CLASSIFIED OCEAN TELEMETRY", width - padding - 310, totalHeight - 35);
+
+    // Download as PNG image
+    reportCanvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `sonar_mission_report_${Date.now()}.png`;
+      link.click();
+      URL.revokeObjectURL(url);
+    }, "image/png");
   }
 
   function jumpToConsole() {
@@ -508,8 +667,8 @@ export default function Home() {
                   <span className="summary-sub">Zero Shadow / Speckle Noise</span>
                 </div>
                 <div className="summary-card actions-card">
-                  <button className="export-report-btn" onClick={exportReport} title="Export full analysis report as JSON">
-                    <Download size={14} /> EXPORT MISSION REPORT
+                  <button className="export-report-btn" onClick={exportReportAsImage} title="Export full graphical tactical report as PNG image">
+                    <Download size={14} /> EXPORT MISSION REPORT (PNG)
                   </button>
                   <button
                     className={`toggle-filter-btn ${filterVerifiedOnly ? "active" : ""}`}

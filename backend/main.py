@@ -1,4 +1,6 @@
 import os
+import asyncio
+import urllib.request
 from typing import List, Dict, Any
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,6 +48,41 @@ app.add_middleware(
 def health_check():
     """Quick ping endpoint for Render health checks and uptime monitors."""
     return {"status": "online", "service": "AetherSound AI Backend"}
+
+async def self_ping_worker():
+    """
+    Self-ping background task:
+    Sends an outgoing HTTP request across the internet to the public Render domain every 10 minutes.
+    Render's edge router receives this as genuine external traffic, keeping the service awake.
+    """
+    # Wait 45 seconds after booting up before starting the ping cycle
+    await asyncio.sleep(45)
+    
+    raw_url = os.getenv("RENDER_EXTERNAL_URL") or os.getenv("BACKEND_URL") or "https://sih26ps57.onrender.com"
+    target_url = raw_url if raw_url.startswith("http") else f"https://{raw_url}"
+    ping_url = f"{target_url.rstrip('/')}/"
+    
+    print(f"🔄 [KEEP-ALIVE] Autonomous self-ping worker activated. Target: {ping_url}")
+    
+    while True:
+        try:
+            # Render's idle inactivity window is 15 minutes. We ping every 10 minutes (600s).
+            await asyncio.sleep(600)
+            req = urllib.request.Request(
+                ping_url,
+                headers={"User-Agent": "AetherSound-KeepAlive/1.0"}
+            )
+            loop = asyncio.get_event_loop()
+            res = await loop.run_in_executor(None, lambda: urllib.request.urlopen(req, timeout=20).read().decode())
+            print(f"⚡ [KEEP-ALIVE] Ping successful -> Server kept awake! Response: {res.strip()}")
+        except Exception as e:
+            print(f"⚠️ [KEEP-ALIVE] Self-ping status: {e}")
+
+@app.on_event("startup")
+async def startup_event():
+    # Automatically start keep-alive worker in cloud environments (Render) or if explicitly enabled
+    if os.getenv("RENDER") or os.getenv("RENDER_EXTERNAL_URL") or os.getenv("ENABLE_KEEP_ALIVE"):
+        asyncio.create_task(self_ping_worker())
 
 engine = MultiEvidenceEngine(meters_per_pixel=0.05)
 
@@ -171,3 +208,8 @@ async def detect(
     print(f"\n🏁 [PIPELINE COMPLETE] Returning {len(final_output)} model candidate(s)")
     print("=" * 55 + "\n")
     return final_output
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)

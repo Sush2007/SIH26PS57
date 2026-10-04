@@ -180,8 +180,19 @@ export default function Home() {
 
   const selected = visibleTargets[selectedIndex] ?? visibleTargets[0] ?? targets[0];
 
-  useEffect(() => () => {
-    if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
+  useEffect(() => {
+    // 1. Silent pre-warm: Wake up the backend on page load so it's ready when the user uploads
+    fetch(`${API_URL}/`, { method: "GET", mode: "cors" }).catch(() => {});
+
+    // 2. Periodic keep-alive heartbeat while the tab is open (every 8 minutes)
+    const heartbeat = setInterval(() => {
+      fetch(`${API_URL}/`, { method: "GET", mode: "cors" }).catch(() => {});
+    }, 8 * 60 * 1000);
+
+    return () => {
+      clearInterval(heartbeat);
+      if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
+    };
   }, []);
 
   // Sync canvas overlay with filtered targets
